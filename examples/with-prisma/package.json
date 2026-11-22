@@ -1,0 +1,27 @@
+{
+  "name": "with-prisma",
+  "private": true,
+  "scripts": {
+    "build": "turbo run build",
+    "check-types": "turbo run check-types",
+    "db:migrate:deploy": "turbo run db:migrate:deploy",
+    "db:migrate:dev": "turbo run db:migrate:dev",
+    "db:push": "turbo run db:push",
+    "db:seed": "turbo run db:seed",
+    "dev": "turbo run dev",
+    "format": "prettier --write \"**/*.{ts,tsx,md}\"",
+    "generate": "turbo run generate",
+    "lint": "turbo run lint"
+  },
+  "devDependencies": {
+    "pnpm": "12.14.0",
+    "prettier": "3.9.10",
+    "prisma": "8.0.0-rc.24",
+    "tsx": "4.23.15",
+    "turbo": "2.11.10"
+  },
+  "engines": {
+    "node": ">=26.12.1"
+  },
+  "packageManager": "pnpm@12.14.0"
+}

@@ -1,0 +1,212 @@
+use futures::{Stream, stream};
+
+use crate::signals::Signal;
+
+#[derive(Debug, thiserror::Error)]
+#[error("Failed to register signal handler: {0}")]
+pub struct Error(#[from] std::io::Error);
+
+#[cfg(windows)]
+/// A listener for Windows Console Ctrl-C events
+pub fn get_signal() -> Result<impl Stream<Item = Option<Signal>>, Error> {
+    let wrapper_ctrl_c = wrapper_ctrl_c()?;
+    let ctrl_c = if wrapper_ctrl_c.is_none() {
+        Some(tokio::signal::windows::ctrl_c()?)
+    } else {
+        None
+    };
+
+    Ok(stream::unfold(
+        (wrapper_ctrl_c, ctrl_c),
+        |(mut wrapper_ctrl_c, mut ctrl_c)| async move {
+            let signal = if let Some(receiver) = wrapper_ctrl_c.as_mut() {
+                receiver.recv().await.flatten()
+            } else if let Some(ctrl_c) = ctrl_c.as_mut() {
+                ctrl_c.recv().await.map(|_| Signal::CtrlC)
+            } else {
+                None
+            };
+            Some((signal, (wrapper_ctrl_c, ctrl_c)))
+        },
+    ))
+}
+
+/// Ctrl+C relayed by the npm wrapper, which reads it in raw mode under a
+/// package manager terminal instead of letting a console event reach turbo.
+/// None when turbo receives console events directly. Each `Some(CtrlC)` is
+/// one keypress; `None` means the wrapper closed the pipe.
+#[cfg(windows)]
+pub fn wrapper_ctrl_c()
+-> Result<Option<tokio::sync::mpsc::UnboundedReceiver<Option<Signal>>>, Error> {
+    Ok(
+        wrapper_ctrl_c_fd_from_env(std::env::var_os("__TURBO_WINDOWS_CTRL_C_FD"))
+            .map(wrapper_ctrl_c_receiver)
+            .transpose()?,
+    )
+}
+
+#[cfg(windows)]
+fn wrapper_ctrl_c_fd_from_env(value: Option<std::ffi::OsString>) -> Option<i32> {
+    value.and_then(|fd| fd.to_str()?.parse::<i32>().ok())
+}
+
+#[cfg(windows)]
+fn wrapper_ctrl_c_receiver(
+    fd: i32,
+) -> Result<tokio::sync::mpsc::UnboundedReceiver<Option<Signal>>, std::io::Error> {
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+    std::thread::Builder::new()
+        .name("turbo-windows-ctrl-c-pipe".to_string())
+        .spawn(move || {
+            let mut byte = [0];
+            loop {
+                match unsafe { libc::read(fd, byte.as_mut_ptr().cast(), 1) } {
+                    1 if byte[0] == 0x03 => {
+                        if tx.send(Some(Signal::CtrlC)).is_err() {
+                            return;
+                        }
+                    }
+                    1 => {}
+                    _ => {
+                        tx.send(None).ok();
+                        return;
+                    }
+                }
+            }
+        })?;
+    Ok(rx)
+}
+
+#[cfg(windows)]
+#[cfg(test)]
+mod tests {
+    use super::wrapper_ctrl_c_fd_from_env;
+
+    #[test]
+    fn parses_wrapper_ctrl_c_fd() {
+        assert_eq!(wrapper_ctrl_c_fd_from_env(Some("3".into())), Some(3));
+        assert_eq!(wrapper_ctrl_c_fd_from_env(Some("not-a-fd".into())), None);
+        assert_eq!(wrapper_ctrl_c_fd_from_env(None), None);
+    }
+}
+
+#[cfg(not(windows))]
+/// A listener for commong Unix signals that require special handling
+///
+/// Currently listens for SIGINT and SIGTERM
+pub fn get_signal() -> Result<impl Stream<Item = Option<Signal>>, Error> {
+    use tokio::signal::unix;
+    let sigint = unix::signal(unix::SignalKind::interrupt())?;
+    let sigterm = unix::signal(unix::SignalKind::terminate())?;
+    let sighup = unix::signal(unix::SignalKind::hangup())?;
+    let from_npm_wrapper = std::env::var_os("__TURBO_NPM_WRAPPER").is_some();
+
+    Ok(stream::unfold(
+        (sigint, sigterm, sighup, Delivered::default()),
+        move |(mut sigint, mut sigterm, mut sighup, mut delivered)| async move {
+            let signal = loop {
+                let received = tokio::select! {
+                    res = sigint.recv() => res.map(|_| UnixSignal::Interrupt),
+                    res = sighup.recv() => res.map(|_| UnixSignal::Hangup),
+                    res = sigterm.recv() => res.map(|_| UnixSignal::Terminate),
+                };
+                let Some(kind) = received else {
+                    break None;
+                };
+                if retain_for_shutdown(from_npm_wrapper, kind, &mut delivered) {
+                    break Some(match kind {
+                        UnixSignal::Terminate => Signal::Terminate,
+                        UnixSignal::Interrupt | UnixSignal::Hangup => Signal::Interrupt,
+                    });
+                }
+            };
+            Some((signal, (sigint, sigterm, sighup, delivered)))
+        },
+    ))
+}
+
+#[cfg(not(windows))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum UnixSignal {
+    Interrupt,
+    Terminate,
+    Hangup,
+}
+
+#[cfg(not(windows))]
+#[derive(Debug, Default)]
+struct Delivered {
+    terminate: bool,
+    hangup: bool,
+}
+
+/// Under the npm wrapper, a SIGTERM or SIGHUP sent to the process group
+/// reaches turbo directly and again through the wrapper's forward. Keep only
+/// the first of each kind so one stop request is not counted as two. Every
+/// SIGINT is kept, since the Unix wrapper does not forward it.
+#[cfg(not(windows))]
+fn retain_for_shutdown(
+    from_npm_wrapper: bool,
+    signal: UnixSignal,
+    delivered: &mut Delivered,
+) -> bool {
+    if !from_npm_wrapper {
+        return true;
+    }
+    match signal {
+        UnixSignal::Interrupt => true,
+        UnixSignal::Terminate => !std::mem::replace(&mut delivered.terminate, true),
+        UnixSignal::Hangup => !std::mem::replace(&mut delivered.hangup, true),
+    }
+}
+
+#[cfg(not(windows))]
+#[cfg(test)]
+mod unix_tests {
+    use super::{Delivered, UnixSignal, retain_for_shutdown};
+
+    #[test]
+    fn wrapper_signal_dedupe_keeps_first_term_and_hup_and_every_interrupt() {
+        let mut delivered = Delivered::default();
+        assert!(retain_for_shutdown(
+            true,
+            UnixSignal::Terminate,
+            &mut delivered
+        ));
+        assert!(retain_for_shutdown(
+            true,
+            UnixSignal::Hangup,
+            &mut delivered
+        ));
+        assert!(retain_for_shutdown(
+            true,
+            UnixSignal::Interrupt,
+            &mut delivered
+        ));
+        assert!(!retain_for_shutdown(
+            true,
+            UnixSignal::Terminate,
+            &mut delivered
+        ));
+        assert!(!retain_for_shutdown(
+            true,
+            UnixSignal::Hangup,
+            &mut delivered
+        ));
+        assert!(retain_for_shutdown(
+            true,
+            UnixSignal::Interrupt,
+            &mut delivered
+        ));
+
+        let mut delivered = Delivered::default();
+        for signal in [
+            UnixSignal::Terminate,
+            UnixSignal::Hangup,
+            UnixSignal::Interrupt,
+        ] {
+            assert!(retain_for_shutdown(false, signal, &mut delivered));
+            assert!(retain_for_shutdown(false, signal, &mut delivered));
+        }
+    }
+}

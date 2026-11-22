@@ -1,0 +1,27 @@
+{
+  "name": "admin",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port $(turbo get-mfe-port)",
+    "build": "tsc -b && vite build",
+    "lint": "eslint . --max-warnings 0",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "react-router": "7.18.5"
+  },
+  "devDependencies": {
+    "@repo/eslint-config": "workspace:*",
+    "@types/node": "26.6.6",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react-swc": "4.3.3",
+    "eslint": "10.15.0",
+    "typescript": "7.0.2",
+    "vite": "8.3.8"
+  }
+}

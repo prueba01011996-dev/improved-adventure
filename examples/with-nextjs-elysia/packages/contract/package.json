@@ -1,0 +1,49 @@
+{
+  "name": "@repo/contract",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Contract layer - shared TypeBox schemas and Drizzle ORM tables",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./drizzle": {
+      "types": "./dist/drizzle/index.d.ts",
+      "import": "./dist/drizzle/index.js"
+    },
+    "./typebox": {
+      "types": "./dist/typebox/index.d.ts",
+      "import": "./dist/typebox/index.js"
+    },
+    "./utils": {
+      "types": "./dist/utils/index.d.ts",
+      "import": "./dist/utils/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "check-types": "tsc --noEmit",
+    "clean": "rm -rf dist .turbo",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:push": "drizzle-kit push",
+    "db:push:prod": "drizzle-kit push --config drizzle.config.prod.ts",
+    "dev": "tsc --watch",
+    "lint": "biome check"
+  },
+  "dependencies": {
+    "@sinclair/typebox": "0.34.52",
+    "drizzle-orm": "0.45.4",
+    "drizzle-typebox": "0.3.3",
+    "elysia": "1.4.32"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.6.8",
+    "@repo/typescript-config": "workspace:*",
+    "@types/pg": "8.23.1",
+    "drizzle-kit": "0.31.11",
+    "typescript": "7.0.2"
+  }
+}

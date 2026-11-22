@@ -1,0 +1,25 @@
+{
+  "private": true,
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "turbo run lint",
+    "check-types": "turbo run check-types",
+    "clean": "turbo run clean && rm -rf node_modules",
+    "format": "prettier --write \"**/*.{ts,tsx,md}\"",
+    "changeset": "changeset",
+    "version-packages": "changeset version",
+    "release": "turbo run build --filter=@acme/docs^... && changeset publish"
+  },
+  "devDependencies": {
+    "@changesets/cli": "3.0.3",
+    "eslint": "10.15.0",
+    "prettier": "3.10.1",
+    "turbo": "2.11.11"
+  },
+  "packageManager": "pnpm@12.18.0",
+  "engines": {
+    "node": ">=26.13.1"
+  },
+  "name": "with-changesets"
+}

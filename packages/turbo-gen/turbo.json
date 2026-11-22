@@ -1,0 +1,26 @@
+{
+  "$schema": "../../docs/public/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    "build:embed": {
+      "outputs": ["src/templates/embedded.ts"],
+      "inputs": ["src/templates/simple-ts/**", "src/templates/simple-js/**"],
+      "command": ["node", "scripts/embed-templates.mjs"]
+    },
+    "check-types": {
+      "dependsOn": ["^build", "build:embed"],
+      "tags": ["ci"]
+    },
+    "test": {
+      "dependsOn": ["build"],
+      "command": ["pnpm", "exec", "jest"],
+      "tags": ["ci"]
+    },
+    "build": {
+      "dependsOn": ["^build", "build:embed"],
+      "outputs": ["dist/**"],
+      "command": ["pnpm", "run", "build"],
+      "tags": ["ci"]
+    }
+  }
+}
