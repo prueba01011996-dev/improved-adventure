@@ -42,7 +42,7 @@
     "fs-extra": "10.1.0",
     "handlebars": "4.7.10",
     "jest": "30.3.0",
-    "minimatch": "9.0.7",
+    "minimatch": "11.0.1",
     "node-plop": "0.32.3",
     "picocolors": "1.0.1",
     "proxy-agent": "8.0.2",
